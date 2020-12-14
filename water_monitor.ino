@@ -24,7 +24,9 @@ LiquidCrystal lcd(rs, en, d4, d5, d6, d7);
  * Constants to be calibrated 
  * 
  * **************/
-int S[5] = {25,500,750,900,1000}; // Sensor value at 0,25,50,75,100%
+//int S[5] = {25,500,750,900,1000}; // Sensor value at 0,25,50,75,100%
+int S[5] = {0,250,500,750,1000}; // Sensor value at 0,25,50,75,100%
+
 float motor_mlps = 20.0; // ml/s
 int alarm_level = 50; // minimum level to start pumping in 0-99 (%)
 
@@ -213,12 +215,14 @@ int sensor_read()
   // switch off
   */
      
-  if( isSimulation ) 
-    sensor_value = sensor_simulate(); 
-  else 
-    sensor_value = analogRead(A5);
-  
-  sensor_level = map_sensor_level(sensor_value);  
+  if( isSimulation ) {
+    //sensor_value = sensor_simulate(); 
+    sensor_value = sensor_simulate_linear(); 
+    sensor_level = map_sensor_level(sensor_value);
+  else { 
+    sensor_value = analogRead(A5); 
+    sensor_level = map_sensor_level(sensor_value);  
+  }
   return sensor_level;
 }
 
@@ -255,11 +259,11 @@ int sensor_simulate()
 {
   int ret;
   unsigned long t4;
+  unsigned long elapsed_time;
   
   if( motor_is_on) { // pump mode
-  
-    
-    unsigned long elapsed_time=(millis()-motor_started_ms) + simulator_extra_ms;
+      
+    elapsed_time=(millis()-motor_started_ms) + simulator_extra_ms;
     t4 = timeToFill*1000/4;
     
     if (elapsed_time < t4) { // 0-25% filled up
@@ -281,6 +285,34 @@ int sensor_simulate()
       if(ret < S[0]) ret = S[0];
   }
   return ret;
+}
+
+// *********************
+// Linear simulator
+//
+// return int in range Smin-Smax
+int sensor_simulate_linear()
+{
+  int ret;
+  unsigned long t4;
+  unsigned long elapsed_time;
+    
+  if( motor_is_on) { // pump mode
+    
+    elapsed_time=(millis()-motor_started_ms) + simulator_extra_ms;
+    t4 = timeToFill*1000; 
+    ret = S[0] + (S[4]-S[0])*elapsed_time/t4;
+    if( ret > S[4]) ret = S[4];
+    
+  } else { // drink mode
+    
+    elapsed_time=(millis()-motor_stoped_ms);
+    t4 = timeToEmpty*1000;
+    ret = S[4] - (S[4]-S[0])*elapsed_time/t4; 
+    if(ret < S[0]) ret = S[0];
+  }
+  return ret;
+} 
 }
 // retuen how much time motor shold have been working to reach this level
 // used in simulation to start filling water from same lavel as alarm_level 
