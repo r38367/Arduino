@@ -327,27 +327,21 @@ onexit:
 void update_screen()
 {
   char txt[17] ;
-  //int v = sensor_read();
+  float vol ;
   unsigned long msec = millis();
-  // sensor_level = sensor_level
-  // sensor_value = sensor_value
-  
-  
-  // drink up =
-  // drink ml/m = 
-  
+ 
   // get time string
   char up_time[8];  
-  ms_to_string(char *up_time);
+  ms_to_string(up_time, msec/1000);
   
   // calculate 
   if( motor_is_on) {
-    drink_speed = -mlps;
+    drink_speed = -motor_mlps;
   }
   else {
     // vol drank so far
-    float vol = motor_worked_s * mlps;
-    drink_total = (vol * (Lmax - sensor_level)) / (Lmax-Lmin)
+    vol = motor_worked_s * motor_mlps;
+    drink_total = (vol * float(Lmax - sensor_level)) / (Lmax-Lmin);
     drink_speed =  drink_total / float( (msec-motor_stoped_ms)/1000.0);
   }
 
@@ -358,35 +352,31 @@ void update_screen()
   Serial.print(sensor_value);
   Serial.print(" ");
   Serial.print(drink_total);
-  Serial.print("ml ");
-  Serial.println();
-  
-  // Line 2
-  Serial.print( (vol*(Lmax - sensor_level))/(Lmax-Lmin));
   Serial.print("ml gone in ");
   Serial.print((msec-motor_stoped_ms)/1000.0);
   Serial.print("s ");
   Serial.print(drink_speed);
   Serial.print("ml/s ");
-  Serial.println();
+  Serial.println("");
   
   // row 1
   // print the number of seconds since reset:
-  sprintf(txt,"%3d%% %4d %4dml", sensor_level, sensor_value, drink_total );
+  sprintf(txt,"%3d%% %4d %4dml", sensor_level, sensor_value, (int)drink_total );
   lcd.setCursor(0, 0);
   lcd.print(txt);
   
   // row 2
   //lcd.setCursor(0, 1);
   //lcd.print(sec_to_time(s));
-  sprintf(txt,up_time + "%4dml", sensor_level, sensor_value, drink_speed );
+  sprintf(txt,"%4d.%1dmls", (int)(drink_speed), int(drink_speed*10)%10 );
   lcd.setCursor(0, 1);
+  lcd.print(up_time);
+  lcd.setCursor(7, 1);
   lcd.print(txt);
 }
 
-char * ms_to_string(char *txt)
+char * ms_to_string(char *txt, unsigned long sec)
 {
-  unsigned long sec = msec/1000;
   
   if(sec < 3600 ){ 
     // 00m00s
@@ -403,3 +393,4 @@ char * ms_to_string(char *txt)
   }
   return txt;
 }
+
