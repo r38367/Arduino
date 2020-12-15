@@ -24,11 +24,11 @@ LiquidCrystal lcd(rs, en, d4, d5, d6, d7);
  * Constants to be calibrated 
  * 
  * **************/
-//int S[5] = {25,500,750,900,1000}; // Sensor value at 0,25,50,75,100%
-int S[5] = {0,250,500,750,1000}; // Sensor value at 0,25,50,75,100%
-
+int S[5] = {50,500,750,900,1000}; // Sensor value at 0,25,50,75,100%
 float motor_mlps = 20.0; // ml/s
-int alarm_level = 50; // minimum level to start pumping in 0-99 (%)
+int Lmax = 95; // minimum level to start pumping in 0-99 (%)
+int Lmin = 50; // minimum level to start pumping in 0-99 (%)
+int L0 = 5;    // minimum level to start start timer for calibration
 
 /******************
  * Simulation constants 
@@ -36,8 +36,9 @@ int alarm_level = 50; // minimum level to start pumping in 0-99 (%)
  * ****************/
 bool  isSimulation = false;
 const float timeToFill = 10; // seconds to fill from 0-100%
-const float timeToEmpty = 50; // seconds to empty from 100-0%
-const float slang_volume = 28.3 ; // slang volume in ml PI*0.3cm^2*100cm=28cm^3
+const float timeToEmpty = 30; // seconds to empty from 100-0%
+const float timeToBase = 10;
+//const float slang_volume = 28.3 ; // slang volume in ml PI*0.3cm^2*100cm=28cm^3
 
 /******************
  * global variables 
@@ -51,7 +52,7 @@ bool motor_is_on = false; // true if motor is on
 
 unsigned long motor_worked_s; // sec motor worked last time
 unsigned long motor_idle_s; // ms motor is idle
-unsigned long simulator_extra_ms = 0; // ms which correcponds to level in simulation to adjust motor pump
+//unsigned long simulator_extra_ms = 0; // ms which correcponds to level in simulation to adjust motor pump
 
 int sensor_value; // sensor value 0-1024
 int sensor_level; // sensor mapped to 0-99
@@ -94,9 +95,11 @@ void setup() {
   
   // check if Simulation 
   isSimulation = digitalRead(SIMULATOR_PIN)==LOW;
+  
   if(isSimulation) {
     Serial.println("!!! Simulation !!!");
     calibrated = true;
+    motor_worked_s = timeToFill * (1.0 - Lmin/100.0);
   }
 }
 /*********************
@@ -124,9 +127,9 @@ void loop() {
   //sensor_value = sensor_read();
   //sensor_level = map_sensor_level(sensor_value);
   
-  simulator_extra_ms = get_sim_time_for_level(sensor_value);
+  //simulator_extra_ms = get_sim_time_for_level(sensor_value);
   
-  if( sensor_read() < alarm_level ) {
+  if( sensor_read() < Lmin ) {
       
     digitalWrite(LED_BUILTIN, LOW);  // turn off LED
 
@@ -135,26 +138,35 @@ void loop() {
     //Serial.println(start_level);
     motor_start();
     
-    /* wait until water reach sensor
-    while( sensor_read() < 0) {
+    // wait until water reach sensor
+    while( sensor_read() < Lmin) {
       //Serial.print(".");
+      update_screen();
       delay(200);
+      
     }
-    //Serial.println(); */
+    unsigned long Tmin = millis()-motor_started_ms;
+    Serial.print("Lmin reached in "); 
+    Serial.print( Tmin/1000.0);
+    Serial.print(" pumped ");
+    Serial.print(Tmin*motor_mlps/1000.0);
+    Serial.print("ml");
+    Serial.println();
    
-   // time since last water
-   //elapsed_time_idle = motor_started_time - motor_stoped_time;
-   //Serial.println(elapsed_time_idle/1000.0);
+    // time since last water
+    //elapsed_time_idle = motor_started_time - motor_stoped_time;
+    //Serial.println(elapsed_time_idle/1000.0);
    
     // start timer
     //tmp = millis();
-    while ( sensor_read() < 99 ) {
+    motor_start();
+    while ( sensor_read() < Lmax ) {
       //Serial.print("~");
       delay(500);
       update_screen(); // todo! change to update_info
     }
     motor_stop();
-  
+    
     Serial.print("motor worked ");
     Serial.print(motor_worked_s);
     Serial.print("s ");
@@ -163,7 +175,8 @@ void loop() {
     Serial.println("ml added");
     
     sensor_read();
-    simulator_extra_ms = get_sim_time_for_level(sensor_value);
+    //simulator_extra_ms = get_sim_time_for_level(sensor_value);
+    delay(500);
   }
 
   /*Serial.print(sensor_value);
@@ -181,7 +194,7 @@ void loop() {
   // update screen
   update_screen();
 
-  delay(500);
+  delay(1000);
 }
 /*****************
   Motor module
@@ -210,17 +223,11 @@ void  motor_stop()
 // always return value 0-99
 int sensor_read()
 {
-  /*/ switch on 5V
-  int value = analogRead(SENSOR_PIN);
-  // switch off
-  */
      
-  if( isSimulation ) {
-    //sensor_value = sensor_simulate(); 
-    sensor_value = sensor_simulate_linear(); 
-    sensor_level = map_sensor_level(sensor_value);
+  if( isSimulation ) 
+    sensor_level = sensor_simulate_level(); 
   else { 
-    sensor_value = analogRead(A5); 
+    sensor_value = analogRead(A5);
     sensor_level = map_sensor_level(sensor_value);  
   }
   return sensor_level;
@@ -252,19 +259,36 @@ int map_sensor_level(int v)
   }  
   return ret;
 }
+
+// ***** Simple Sensor simulation *************
+// 
+// return int in range Smin-Smax
+int sensor_simulate_level()
+{
+  unsigned long elapsed_time;
+
+  if( motor_is_on) { // pump mode
+    elapsed_time = (millis()-motor_started_ms);
+    sensor_level = Lmin + (int)(Lmax-L0)*elapsed_time/(timeToFill*1000);
+    if( sensor_level > 100 ) sensor_level = 100;
+    
+  } else { // drink mode
+    elapsed_time = (millis()-motor_stoped_ms);
+    sensor_level = Lmax - (int)(Lmax-L0)*elapsed_time/(timeToEmpty*1000);
+    if( sensor_level < 0 ) sensor_level = 0;
+  }
+  return sensor_level;
+}
 // ***** Sensor simulation *************
 // 
 // return int in range Smin-Smax
-int sensor_simulate()
+/*int sensor_simulate_old()
 {
   int ret;
-  unsigned long t4;
-  unsigned long elapsed_time;
+  unsigned long t4 = timeToFill*1000/4;
+  //unsigned long elapsed_time=(millis()-motor_started_ms) + simulator_extra_ms;
   
   if( motor_is_on) { // pump mode
-      
-    elapsed_time=(millis()-motor_started_ms) + simulator_extra_ms;
-    t4 = timeToFill*1000/4;
     
     if (elapsed_time < t4) { // 0-25% filled up
       ret = S[0] + ((elapsed_time - t4*0)*(S[1]-S[0]))/t4;
@@ -280,40 +304,29 @@ int sensor_simulate()
       
       if( ret > S[4]) ret = S[4];
     }
-  } else { // drink mode
-      ret = S[4] - ((S[4]-S[0])/timeToEmpty)*(millis()-motor_stoped_ms)/1000.0; 
-      if(ret < S[0]) ret = S[0];
-  }
-  return ret;
-}
-
-// *********************
-// Linear simulator
-//
-// return int in range Smin-Smax
-int sensor_simulate_linear()
-{
-  int ret;
-  unsigned long t4;
-  unsigned long elapsed_time;
-    
-  if( motor_is_on) { // pump mode
-    
-    elapsed_time=(millis()-motor_started_ms) + simulator_extra_ms;
-    t4 = timeToFill*1000; 
-    ret = S[0] + (S[4]-S[0])*elapsed_time/t4;
-    if( ret > S[4]) ret = S[4];
     
   } else { // drink mode
+      //ret = S[4] - ((S[4]-S[0])/timeToEmpty)*(millis()-motor_stoped_ms)/1000.0; 
+      //if(ret < S[0]) ret = S[0];
     
-    elapsed_time=(millis()-motor_stoped_ms);
-    t4 = timeToEmpty*1000;
-    ret = S[4] - (S[4]-S[0])*elapsed_time/t4; 
-    if(ret < S[0]) ret = S[0];
+    if (elapsed_time < t4) { // 0-25% filled up
+      ret = S[3] + (t4 - elapsed_time)/t4;
+   
+    } else if(elapsed_time < t4*2) { //25-50% filled up
+      ret = S[2] + (2*t4 - elapsed_time)/t4;
+   
+    } else if(elapsed_time < t4*3) { //50-75% filled up
+      ret = S[1] + (3*t4 - elapsed_time)/t4;
+    
+    } else { //75-100% filled up
+      ret = S[0] + (4*t4 - elapsed_time)/t4;
+      
+      if( ret < S[0]) ret = S[0];
+    }
+    
   }
   return ret;
-} 
-}
+} */
 // retuen how much time motor shold have been working to reach this level
 // used in simulation to start filling water from same lavel as alarm_level 
 unsigned long get_sim_time_for_level(int v)
@@ -443,16 +456,24 @@ void update_screen()
   //int last_idle_time_sec = (elapsed_time_idle)/1000; // last time motor stoped
   float drink_speed;
   
-  if( !motor_is_on) drink_speed = ml * (100.0 - sensor_level)/(100.0-alarm_level)/int((msec-motor_stoped_ms)/1000);
+  
+  if( !motor_is_on) {
+    drink_speed = ml*float(Lmax - sensor_level)/float(Lmax-Lmin);
+    drink_speed /= float((msec-motor_stoped_ms)/1000.0);
+  }
+  else {
+    drink_speed = ml*float(Lmin - sensor_level)/float(Lmax-Lmin);
+    drink_speed /= float((msec-motor_started_ms)/1000.0);
+  }
   
   Serial.print(sensor_level);
   Serial.print("% ");
-  Serial.print(100 - sensor_level);
-  Serial.print("% gone in ");
+  Serial.print(ml*(Lmax - sensor_level)/(Lmax-Lmin));
+  Serial.print("ml gone in ");
   Serial.print((msec-motor_stoped_ms)/1000.0);
   Serial.print("s ");
   Serial.print(drink_speed);
-  Serial.print("ml/m ");
+  Serial.print("ml/s ");
   Serial.print(ml);
   Serial.print("ml ");
   Serial.println();
@@ -462,7 +483,7 @@ void update_screen()
   // row 1
   lcd.setCursor(0, 0);
   // print the number of seconds since reset:
-  sprintf(txt,"%3d%% %4d %4dml", sensor_level, sensor_value, ml );
+  sprintf(txt,"%3d%% %4d %4dml", sensor_level, sensor_value, ml*(sensor_level-Lmin)/(Lmax-Lmin) );
   lcd.print(txt);
   // row 2
   //lcd.setCursor(0, 1);
@@ -474,11 +495,11 @@ void update_screen()
   
   unsigned long sec = msec/1000;
   if(sec < 3600 ){ // under 1h: 00m00s
-    sprintf(txt, "%2dm%02ds %5dmls", int(sec/60), int(sec%60), (int)drink_speed );
+    sprintf(txt, "%2dm%02ds  %5dmls", int(sec/60), int(sec%60), (int)drink_speed );
   }else if (sec < 86400 ){ // under 24h: 00h00m
-    sprintf(txt, "%2dh%02dm %5dmls", int(sec/3600), int((sec/60)%60), (int)drink_speed );
+    sprintf(txt, "%2dh%02dm  %5dmls", int(sec/3600), int((sec/60)%60), (int)drink_speed );
   }else{ // 00d00h
-    sprintf(txt, "%2dd%02dh %5dmls", int(sec/86400), int((sec/3600)%24), (int)drink_speed );
+    sprintf(txt, "%2dd%02dh  %5dmls", int(sec/86400), int((sec/3600)%24), (int)drink_speed );
     
   }
   lcd.print(txt);
