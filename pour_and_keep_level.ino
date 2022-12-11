@@ -1,14 +1,7 @@
 /*
-Simple Xmas tree watering whish uses minimum level for water sensor 
-
-Starts working as soon as the water level is above MAX level.
-Mearsures water level periodically. When the level is below the MIN level
-it starts water pump and keeps pumping until level is over MAX. 
-
-Update History:
-19/12/21
-v1.0 - initial prototype that works
-
+ * Calibrate water pump before use it in Xmas tree watering
+ * 
+ *
  */
 
 /*
@@ -21,6 +14,7 @@ const int MOTOR_PIN =  10;   // LED lit when motor is on
 const int SENSOR_PIN = A5; // int Sensor = Analog 5.
 //const int SIMULATOR_PIN = 11; // LOW = simulation
 const int SENSOR_ON = 8; // pin to turn sensor on
+const int SCREEN_ON = 12; // pin to turn screen on
 
 #include <LiquidCrystal.h>
 // initialize the library by associating any needed LCD interface pin
@@ -57,6 +51,8 @@ int sensor_value; // sensor value 0-1024
 
 float  drink_total = 0;
 float  drink_speed = 0;
+float pSpeed = 0;
+
 
 int prev_sensor_value = 0;
 int update_interval_s = 32; 
@@ -75,6 +71,7 @@ void setup() {
   pinMode(LED_BUILTIN, OUTPUT);
   pinMode(MOTOR_PIN, OUTPUT);
   pinMode(SENSOR_ON, OUTPUT);
+  pinMode(SCREEN_ON, OUTPUT);
   
   // initialize the pushbutton pin as an pull-up input:
   // the pull-up input pin will be HIGH when the switch is open and LOW when the switch is closed.
@@ -89,6 +86,9 @@ void setup() {
   // set up the LCD's number of columns and rows:
   lcd.begin(16, 2);
   lcd.clear();
+  
+  // switch screen on
+  digitalWrite(SCREEN_ON, HIGH);
 /*
   // while sensor value is less than min water level print sensor level
   Serial.print("Empty level: ");
@@ -169,7 +169,6 @@ void loop() {
   
   unsigned long tmp;
   char timestr[10];
-
   
    // print to serial
   // Line 1
@@ -177,7 +176,12 @@ void loop() {
   Serial.print(" "); // 
   Serial.print(sensor_value - prev_sensor_value); //
   Serial.print(" "); // 
+  Serial.print(pSpeed); //
+  Serial.print(" "); // 
   Serial.println(update_interval_s);
+  
+  // keep screen on during countdown
+  digitalWrite(SCREEN_ON, HIGH);
   
   // wait interval
   for(next_mesurement_in_s=update_interval_s; next_mesurement_in_s>0; next_mesurement_in_s--)
@@ -185,42 +189,17 @@ void loop() {
     update_screen();
     delay(1000);
   }
+  // switch screen off 
+  digitalWrite(SCREEN_ON, LOW);
+  
   
   prev_sensor_value = sensor_value;
   
   // read sensor 
   sensor_read();
   
-  //if( sensor_value < S[2] ) 
-  //{
-    
-      // current speed
-    //s2go = update_interval_s*(sensor_value - S[1])/(prev_sensor_value - sensor_value);
-    
-    // calculate delay for next update
-    if( sensor_value > int(prev_sensor_value * 0.95) )
-    {
-      if( update_interval_s < 1000 ) update_interval_s *= 2; // 1,2,4,8,16,32,1m4s,2m,4m, 
-    }
-    if( sensor_value < int(prev_sensor_value * 0.8) )
-    {
-      if( update_interval_s >= 8 ) update_interval_s /= 2; 
-    } 
-  //}
-  
-  /*if( set_max_min == 1 )
-  {
-    S[2] = sensor_value;
-    S[1] = S[2]*0.9;
-    Serial.print("Max2 level: ");
-  Serial.println(S[2]);
-     Serial.print("Min2 level: ");
-  Serial.println(S[1]);
-  
-    set_max_min = 0;
-  }  */
-  
-  if( sensor_value < S[1] ) 
+  // check if we below Min level
+  if( sensor_value <= S[1] ) 
   {
     // if lever is lower than Lmin 
     startv = sensor_value; // value before motor start
@@ -246,6 +225,14 @@ void loop() {
       //motor_timer(1000); // start motor
       //update_screen();
       delay(200);
+      
+      // TODO:add check that motor works too long - 30s? 
+      if ( millis() - motor_started_ms > 30000 ) 
+      { 
+        // set threshold to 0 to stop further attempt
+        S[1]=0;
+        break;
+      }
     }
     motor_stop();
     //sensor_value += diffv; 
@@ -257,8 +244,44 @@ void loop() {
     update_interval_s = min(16,update_interval_s); 
     //update_screen();
     prev_sensor_value = sensor_value;
+    pSpeed = 0;
   }
-
+  else
+  {
+    // calculate delay for next update
+    // current speed
+    pSpeed = float(sensor_value - S[1])/float(prev_sensor_value - S[1]);
+    
+    if( pSpeed > 0.8 ) 
+    {
+      if( update_interval_s <= 1800 ) update_interval_s *= 2; // max period 1h=3600s
+    }
+    else if ( pSpeed < 0.4)
+    {
+      if( update_interval_s >= 16 ) update_interval_s /= 4; // min period 8s
+    }
+    else if ( pSpeed < 0.6)
+    {
+      if( update_interval_s >= 16 ) update_interval_s /= 2; // min period 8s
+    }
+    
+    // new function for next delay
+    //
+    // prev_value  next_value  min_value
+    //   |          |           |
+    //   v          v           v
+    // --+----------+-----------+----
+    //              |<---P1---->|
+    //   |<------P0------------>|
+    //
+    // if P1/P0 
+    //    > 0.8 -> too slow change -> interval *=2
+    //    < 0.6 -> too fast change -> interval /=2
+    //    within 0.6-0.8 -> ok -> keep interval
+    // 
+    
+    
+  }
 }
 // ********************
 //  Motor module
@@ -361,8 +384,8 @@ void print_calibr_value(int v2, int p)
  * 
 0123456789012345
 ----------------
-AAA BBbBBb CCdCC - sensor value, , last push
-DDdDDd EEEE FFFF - ....01m12s - up time, consumption speed
+AAA BBbBBb CCdCC 
+DDdDDd EEE FFFFF 
 ----------------
 0123456789012345
 
@@ -388,7 +411,7 @@ void update_screen()
   // print the number of seconds since reset:
   ms_to_string(up_time, (msec - motor_stoped_ms)/1000);
   ms_to_string(last_time, last_drink_s );
-  sprintf(txt,"%3d %s %s ", sensor_value, last_time, up_time ); // int((unsigned long)(Lmax-sensor_level)*1000/(msec-motor_stoped_ms)) );
+  sprintf(txt,"%3d %6s %s ", sensor_value, last_time, up_time ); // int((unsigned long)(Lmax-sensor_level)*1000/(msec-motor_stoped_ms)) );
   lcd.setCursor(0, 0);
   lcd.print(txt);
   
@@ -408,17 +431,20 @@ void update_screen()
   lcd.print( txt );
   
   // print remaining time until measurement
-  lcd.setCursor(12, 1);
-  sprintf(txt,"%4d", next_mesurement_in_s);
+  lcd.setCursor(11, 1);
+  //sprintf(txt,"%4d", next_mesurement_in_s);
   
-  /*
-  if( next_mesurement_in_s < 100 )
-    sprintf(txt,"%2ds ", next_mesurement_in_s);
+  
+  if( next_mesurement_in_s < 60 )
+    sprintf(txt,"%5ds ", next_mesurement_in_s); 
   else if( next_mesurement_in_s < 3600 )
-    sprintf(txt,"%2dm ", next_mesurement_in_s/60);
+    sprintf(txt,"%2dm%02d", next_mesurement_in_s/60,next_mesurement_in_s%60);
   else
-    sprintf(txt,"%2dh ", next_mesurement_in_s/3600);
-  */
+    sprintf(txt,">%dh   ", next_mesurement_in_s/3600);
+  //txt[5]='\0';
+  // 00000s 
+  // 00m00s
+  // >0h...   
   lcd.print(txt);
 }
 
@@ -427,15 +453,15 @@ char * ms_to_string(char *txt, unsigned long sec)
   
   if(sec < 3600 ){ 
     // 00m00s
-    sprintf(txt, "%dm%02ds \0", int(sec/60), int(sec%60) );
+    sprintf(txt, "%2dm%02ds\0", int(sec/60), int(sec%60) );
     
   } else if (sec < 86400 ){ 
     // 00h00m
-    sprintf(txt, "%dh%02dm \0", int(sec/3600), int((sec/60)%60) );
+    sprintf(txt, "%2dh%02dm\0", int(sec/3600), int((sec/60)%60) );
     
   } else { 
     // 00d00h
-    sprintf(txt, "%dd%02dh \0", int(sec/86400), int((sec/3600)%24) );
+    sprintf(txt, "%2dd%02dh\0", int(sec/86400), int((sec/3600)%24) );
     
   }
   return (char*)txt;
