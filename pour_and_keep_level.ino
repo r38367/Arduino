@@ -1,8 +1,19 @@
 /*
- * Calibrate water pump before use it in Xmas tree watering
- * 
- *
- */
+
+Simple Xmas tree watering whish uses minimum level for water sensor 
+Starts working as soon as the water level is above MAX level.
+Mearsures water level periodically. When the level is below the MIN level
+it starts water pump and keeps pumping until level is over MAX. 
+
+Update History:
+
+19/12/21 v1.0 - initial prototype that works
+11/12/21 v2.0 
+ - screen is off when motor is working to save load
+ - motor stops after 30s if max is not reached (likely empty watertank)
+ - fixed format on screen
+
+*/
 
 /*
  * Board pin layout
