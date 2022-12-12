@@ -1,26 +1,21 @@
 /*
-
 Simple Xmas tree watering whish uses minimum level for water sensor 
 Starts working as soon as the water level is above MAX level.
 Mearsures water level periodically. When the level is below the MIN level
 it starts water pump and keeps pumping until level is over MAX. 
-
 Update History:
-
 19/12/21 v1.0 - initial prototype that works
 11/12/21 v2.0 
  - screen is off when motor is working to save load
  - motor stops after 30s if max is not reached (likely empty watertank)
  - fixed format on screen
-
-*/
+ */
 
 /*
  * Board pin layout
  * 
  */
 // constants won't change. They're used here to set pin numbers:
-const int BUTTON_PIN = 13;  // the number of the pushbutton pin
 const int MOTOR_PIN =  10;   // LED lit when motor is on
 const int SENSOR_PIN = A5; // int Sensor = Analog 5.
 //const int SIMULATOR_PIN = 11; // LOW = simulation
@@ -86,7 +81,7 @@ void setup() {
   
   // initialize the pushbutton pin as an pull-up input:
   // the pull-up input pin will be HIGH when the switch is open and LOW when the switch is closed.
-  pinMode(BUTTON_PIN, INPUT_PULLUP);
+  //pinMode(BUTTON_PIN, INPUT_PULLUP);
   
   // the pull-up input pin will be HIGH when the switch is open and LOW when the switch is closed.
   //pinMode(SIMULATOR_PIN, INPUT_PULLUP); //short to Ground for LOW
@@ -100,6 +95,8 @@ void setup() {
   
   // switch screen on
   digitalWrite(SCREEN_ON, HIGH);
+
+
 /*
   // while sensor value is less than min water level print sensor level
   Serial.print("Empty level: ");
@@ -169,8 +166,10 @@ void setup() {
   update_interval_s = 4;
   startv = S[1];
   lcd.clear();
-  digitalWrite(LED_BUILTIN, LOW);
   
+  //digitalWrite(LED_BUILTIN, HIGH);
+  //delay(1000);
+  //digitalWrite(LED_BUILTIN, LOW);
   
 }
 // ********************
@@ -193,17 +192,17 @@ void loop() {
   
   // keep screen on during countdown
   digitalWrite(SCREEN_ON, HIGH);
-  
+ 
   // wait interval
   for(next_mesurement_in_s=update_interval_s; next_mesurement_in_s>0; next_mesurement_in_s--)
   {
     update_screen();
     delay(1000);
   }
+  
   // switch screen off 
   digitalWrite(SCREEN_ON, LOW);
-  
-  
+ 
   prev_sensor_value = sensor_value;
   
   // read sensor 
@@ -238,12 +237,13 @@ void loop() {
       delay(200);
       
       // TODO:add check that motor works too long - 30s? 
-      if ( millis() - motor_started_ms > 30000 ) 
+      if( millis() - motor_started_ms > 30000 ) 
       { 
         // set threshold to 0 to stop further attempt
         S[1]=0;
         break;
       }
+
     }
     motor_stop();
     //sensor_value += diffv; 
@@ -265,7 +265,7 @@ void loop() {
     
     if( pSpeed > 0.8 ) 
     {
-      if( update_interval_s <= 1800 ) update_interval_s *= 2; // max period 1h=3600s
+      if( update_interval_s <= 1000 ) update_interval_s *= 2; // max period 1h=3600s
     }
     else if ( pSpeed < 0.4)
     {
@@ -386,7 +386,7 @@ void print_calibr_value(int v2, int p)
       sprintf(text,"%1d %4d",p, v2);
       lcd.print(text);
 }
-      
+
 /*********************
  * 
  *  Update screen info 
@@ -395,19 +395,68 @@ void print_calibr_value(int v2, int p)
  * 
 0123456789012345
 ----------------
-AAA BBbBBb CCdCC 
-DDdDDd EEE FFFFF 
+EEE BBbBBb DDdDD 
+AAA CCcCCc FFfFF 
 ----------------
 0123456789012345
 
-AAA - last measured sensor value
-BBB - last time before refill
-CCC - time since motor stopped 
-DDD - up time  
-EEE - sensor value when  motor started
-FFF - time (s) to next measurement 
+AAA - last measured sensor value (sensor_value)
+BBB - last time before refill (last_time)
+CCC - time since motor stopped (cur_time)
+DDD - up time  (up_time)
+EEE - sensor value when  motor started (startv)
+FFF - time (s) to next measurement  (rem_time)
 */
 void update_screen()
+{
+  char txt[17]; // buffer
+  
+  char up_time[7]; // up time since start in sec 
+  ms_to_string(up_time, millis()/1000);
+
+  char last_time[7]; // last time before refill in sec
+  ms_to_string(last_time, last_drink_s );
+  
+  char cur_time[7]; // time since motor stopped in sec
+  ms_to_string(cur_time, (millis() - motor_stoped_ms)/1000 );
+  
+  char rem_time[7]; // time remains til next measurement in sec
+  ms_to_string(rem_time, next_mesurement_in_s);
+  
+  
+  // 1 line
+  sprintf(txt,"%3d %6s %5s", startv, last_time, up_time ); 
+  lcd.setCursor(0, 0);
+  lcd.print(txt);
+  
+  // 2 line
+  sprintf(txt,"%3d %6s %5s", sensor_value, cur_time, rem_time ); 
+  lcd.setCursor(0, 1);
+  lcd.print(txt);
+
+}
+
+/*********************
+ * 
+ *  Update screen info 
+ * 
+ * 
+ * 
+0123456789012345
+----------------
+EEE BBbBBb DDdDD 
+AAA CCcCCc FFfFF 
+----------------
+0123456789012345
+
+AAA - last measured sensor value (sensor_value)
+BBB - last time before refill (last_time)
+CCC - time since motor stopped (up_time)
+DDD - up time  (up_time)
+EEE - sensor value when  motor started (startv)
+FFF - time (s) to next measurement  ()
+*/
+void update_screen_original()
 {
   char txt[17] ;
   float vol ;
@@ -447,22 +496,24 @@ void update_screen()
   
   
   if( next_mesurement_in_s < 60 )
-    sprintf(txt,"%5ds ", next_mesurement_in_s); 
+    sprintf(txt,"%5ds ", next_mesurement_in_s);
   else if( next_mesurement_in_s < 3600 )
-    sprintf(txt,"%2dm%02d", next_mesurement_in_s/60,next_mesurement_in_s%60);
+    sprintf(txt,"%2dm%02ds", next_mesurement_in_s/60,next_mesurement_in_s%60);
   else
-    sprintf(txt,">%dh   ", next_mesurement_in_s/3600);
-  //txt[5]='\0';
-  // 00000s 
-  // 00m00s
-  // >0h...   
+    sprintf(txt,">%dh  ", next_mesurement_in_s/3600);
+  
   lcd.print(txt);
 }
 
 char * ms_to_string(char *txt, unsigned long sec)
 {
   
-  if(sec < 3600 ){ 
+  if(sec < 60){
+    // ...1s
+    // ..59s
+    sprintf(txt, "%5ss\0", int(sec) );
+  }
+  else if(sec < 3600 ){ 
     // 00m00s
     sprintf(txt, "%2dm%02ds\0", int(sec/60), int(sec%60) );
     
