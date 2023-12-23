@@ -7,18 +7,31 @@ it starts water pump and keeps pumping until level is over MAX.
 
 Update History:
 
-19/12/21 v1.0 - initial prototype that works
-11/12/21 v2.0 
+19/12/21 v1 - initial prototype that works
+11/12/21 v2 
  - screen is off when motor is working to save load
  - motor stops after 30s if max is not reached (likely empty watertank)
  - fixed format on screen
-
+13/12/23 v3 
+ - fixed #4 - restart after power outage
+ - changed min interval to 30s
+ - changed initial screen to Merry Xmas and version 
+ - changed initial screen to show countdown at start 
+ - power off protection: motor start pumping after 30s at start! 
+  
 */
+/******************
+ * Global constants 
+ * 
+ * **************/
+const int ver=3;  // product version!
+int S[3] = {100,120,250}; // Sensor value at 0,50,100%
 
-/*
+
+/******************
  * Board pin layout
  * 
- */
+ * **************/
 // constants won't change. They're used here to set pin numbers:
 const int BUTTON_PIN = 13;  // the number of the pushbutton pin
 const int MOTOR_PIN =  10;   // LED lit when motor is on
@@ -34,17 +47,7 @@ const int rs = 2, en = 3, d4 = 4, d5 = 5, d6 = 6, d7 = 7;
 LiquidCrystal lcd(rs, en, d4, d5, d6, d7);
 
 /******************
- * Constants to be calibrated 
- * 
- * **************/
-int S[3] = {100,120,250}; // Sensor value at 0,50,100%
-char* S_name[3] = { "Empty", "Low  ", "High " };
-//int Lmax = 450; // volume is full
-//int Lmin = 300; // volume is low
-//int L0 = 180;   // volume is 0 
-
-/******************
- * global variables 
+ * Global variables 
  * 
  * ***************/
 bool calibrated = false; // true if calibration was already done
@@ -66,7 +69,7 @@ float pSpeed = 0;
 
 
 int prev_sensor_value = 0;
-int update_interval_s = 32; 
+int update_interval_s = 30; 
 int next_mesurement_in_s = 0;
 int set_max_min = 1; // set _max min value first time 
 int s2go = 0; // sec to go to min
@@ -100,73 +103,25 @@ void setup() {
   
   // switch screen on
   digitalWrite(SCREEN_ON, HIGH);
-/*
-  // while sensor value is less than min water level print sensor level
-  Serial.print("Empty level: ");
-  Serial.println(S[0]);
-  
   lcd.setCursor(0,0);
-  //"1234567890123456"
-  //"Fill to max  000"
-  //"Empty level...  "
-  lcd.print("Empty level...  ");
-  lcd.noDisplay();
-  // fill to the max and stabilize sensor 
-  sensor_stabilize(3);
-  lcd.display();
-  
-  S[0]=sensor_value;
-  Serial.print("Min level: ");
-  Serial.print(S[0]);
-  Serial.print("  in ");
-  Serial.print( millis()/1000);
-  Serial.println("s");
-*/
-  lcd.setCursor(0,0);
-  //lcd.print("Push to max     ");
-  //lcd.setCursor(13,0); lcd.print(S[0]);
-  lcd.print("Push to water  ");
-  lcd.setCursor(0,1); 
-  lcd.print("over ");
-  lcd.print(S[2]);
 
-  //lcd.setCursor(13,0); lcd.print(S[2]);
-  
-  while( sensor_read() < S[2] )
-  {
-    print_calibr_value(sensor_value, 0);
-    delay(1000);
-  }
-  /* 
-  // fill to the max and stabilize sensor 
-  unsigned long tmp = millis();
-  lcd.noDisplay();
-  sensor_stabilize(3); 
-  lcd.display();
-  
-  // set max value to stabilized value
-  //S[2] = sensor_value;
-  Serial.print("Max level: ");
-  Serial.print(S[2]);
-  Serial.print("  in ");
-  Serial.print( (millis() - tmp)/1000);
-  Serial.println("s");
-  
-  S[1] = S[0] + (S[2]-S[0])*0.2; 
-  Serial.print("Mid level: ");
-  Serial.println(S[1]);
- 
-  lcd.clear();
-  lcd.setCursor(0,0);
-  lcd.print("Levels:"); 
-  lcd.setCursor(0,1); lcd.print(S[0]);
-  lcd.setCursor(5,1); lcd.print(S[1]);
-  lcd.setCursor(10,1); lcd.print(S[2]); 
+  // initial message max/min
+  print_start_screen();
   delay(3000);
- */
+
+  // wait 30s until sensor is in water, but not more than 30s
+  int  start_delay = 30; // countdown at start before motor starts if sensor is dry
+  while( sensor_read() < S[2] and start_delay > 0)
+  {
+    print_delay_screen(sensor_value, S[2], start_delay);
+    delay(1000);
+    start_delay-- ;
+  }
+ 
+ // initialize variables 
   prev_sensor_value = sensor_value;
   set_max_min = 1;
-  update_interval_s = 4;
+  update_interval_s = 5; // set short interval to see how it works 
   startv = S[1];
   lcd.clear();
   digitalWrite(LED_BUILTIN, LOW);
@@ -232,7 +187,7 @@ void loop() {
       Serial.print(diffv);
       Serial.print(" = ");
       Serial.println(sensor_value + diffv);
-      update_screen();
+      //update_screen(); - screen is off when motor is on
       //motor_timer(1000); // start motor
       //update_screen();
       delay(200);
@@ -252,7 +207,7 @@ void loop() {
     
     // Level is above Lmax now
     // initiate variables
-    update_interval_s = min(16,update_interval_s); 
+    update_interval_s = 60; //min(16,update_interval_s); 
     //update_screen();
     prev_sensor_value = sensor_value;
     pSpeed = 0;
@@ -269,11 +224,11 @@ void loop() {
     }
     else if ( pSpeed < 0.4)
     {
-      if( update_interval_s >= 16 ) update_interval_s /= 4; // min period 8s
+      if( update_interval_s >= 60 ) update_interval_s /= 4; // min period 15s
     }
     else if ( pSpeed < 0.6)
     {
-      if( update_interval_s >= 16 ) update_interval_s /= 2; // min period 8s
+      if( update_interval_s >= 30 ) update_interval_s /= 2; // min period 15s
     }
     
     // new function for next delay
@@ -386,7 +341,59 @@ void print_calibr_value(int v2, int p)
       sprintf(text,"%1d %4d",p, v2);
       lcd.print(text);
 }
-      
+
+/*********************
+ * 
+ *  Print start screen 
+ * 
+0123456789012345
+----------------
+Merry Xmass v2.0   
+max=000, min=000
+----------------
+0123456789012345
+*/
+void print_start_screen()
+{
+    char text[17];
+    
+      // line 1
+      lcd.setCursor(0,0);
+      sprintf(text,"Merry Xmas v%d",ver);
+      lcd.print(text);
+
+      // Line 2
+      lcd.setCursor(0,1);
+      sprintf(text,"min=%3d, max=%3d", S[1], S[2]);
+      lcd.print(text);
+}
+
+/*********************
+ * 
+ *  Print delay screen 
+ * 
+0123456789012345
+----------------
+push.to.000:.000
+or.start.in..00s
+----------------
+0123456789012345
+*/
+void print_delay_screen(int now, int max, int time)
+{
+    char text[17];
+    
+      // line 1
+      lcd.setCursor(0,0);
+      sprintf(text,"push to %3d: %3d", max, now);
+      lcd.print(text);
+
+      // Line 2
+      lcd.setCursor(0,1);
+      sprintf(text,"or start in  %2ds", time);
+      lcd.print(text);
+}
+
 /*********************
  * 
  *  Update screen info 
@@ -397,6 +404,7 @@ void print_calibr_value(int v2, int p)
 ----------------
 AAA BBbBBb CCdCC 
 DDdDDd EEE FFFFF 
+add water+reset
 ----------------
 0123456789012345
 
