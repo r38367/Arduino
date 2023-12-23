@@ -187,7 +187,7 @@ void loop() {
       Serial.print(diffv);
       Serial.print(" = ");
       Serial.println(sensor_value + diffv);
-      update_screen();
+      //update_screen(); - screen is off when motor is on
       //motor_timer(1000); // start motor
       //update_screen();
       delay(200);
@@ -374,8 +374,8 @@ void print_start_screen()
  * 
 0123456789012345
 ----------------
-start.in.00s.or.
 push.to.000:.000
+or.start.in..00s
 ----------------
 0123456789012345
 */
@@ -385,12 +385,12 @@ void print_delay_screen(int now, int max, int time)
     
       // line 1
       lcd.setCursor(0,0);
-      sprintf(text,"start in %2ds or ", time);
+      sprintf(text,"push to %3d: %3d", max, now);
       lcd.print(text);
 
       // Line 2
       lcd.setCursor(0,1);
-      sprintf(text,"push to %3d: %3d", max, now);
+      sprintf(text,"or start in  %2ds", time);
       lcd.print(text);
 }
 
@@ -404,6 +404,7 @@ void print_delay_screen(int now, int max, int time)
 ----------------
 AAA BBbBBb CCdCC 
 DDdDDd EEE FFFFF 
+add water+reset
 ----------------
 0123456789012345
 
